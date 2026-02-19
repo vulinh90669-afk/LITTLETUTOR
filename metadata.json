@@ -1,0 +1,7 @@
+{
+  "name": "LittleTutor - English for Kids",
+  "description": "An AI-powered English tutor for primary school students (Grades 2-5) focusing on vocabulary through interactive lessons and games.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
