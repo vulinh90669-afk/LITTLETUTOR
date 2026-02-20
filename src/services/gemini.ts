@@ -30,8 +30,13 @@ Khi đánh giá phát âm của học sinh:
 - Nếu chưa tốt: Chỉ ra lỗi sai một cách nhẹ nhàng và khuyến khích con thử lại.
 `;
 
-export async function generateLesson(topic: string, grade: string) {
+export async function generateLesson(topic: string, grade: string, wordsList: any[]) {
+  const wordsContext = wordsList.map(w => `- ${w.word}: ${w.meaning} (Ví dụ: ${w.example})`).join('\n');
+  
   const prompt = `Dạy cho học sinh lớp ${grade} chủ đề: ${topic}. 
+  Dưới đây là danh sách các từ vựng đã được nạp sẵn từ cơ sở dữ liệu:
+  ${wordsContext}
+
   Hãy soạn bài học dưới dạng JSON với cấu trúc sau:
   {
     "topic": "Tên chủ đề",
@@ -58,7 +63,11 @@ export async function generateLesson(topic: string, grade: string) {
       "answer": "đáp án đúng"
     }
   }
-  Yêu cầu: 10 từ vựng. Nội dung cực kỳ vui vẻ, phù hợp trẻ em.`;
+  Yêu cầu: 
+  1. Sử dụng CHÍNH XÁC các từ vựng được cung cấp ở trên.
+  2. Tạo phiên âm, mẹo ghi nhớ và các câu ví dụ sinh động cho từng từ.
+  3. Tạo bài tập điền từ và hội thoại dựa trên các từ này.
+  4. Nội dung cực kỳ vui vẻ, phù hợp trẻ em.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
@@ -125,17 +134,33 @@ export async function evaluatePronunciation(audioBase64: string, expectedText: s
         },
         {
           text: `Đây là âm thanh học sinh lớp 2-5 đọc từ/câu: "${expectedText}". 
-          Hãy đánh giá độ chính xác của phát âm này thật nhanh và ngắn gọn. 
-          Trả lời bằng tiếng Việt, cực kỳ vui vẻ và khích lệ. 
-          Bắt đầu bằng "Tuyệt vời!" hoặc "Chính xác!" nếu đúng, hoặc "Gần đúng rồi!" nếu cần sửa. 
-          Chỉ ra 1 lỗi quan trọng nhất nếu có.`,
+          Hãy đánh giá chi tiết phát âm này và trả về kết quả dưới dạng JSON:
+          {
+            "accuracy": số từ 0-100,
+            "feedback": "nhận xét ngắn gọn bằng tiếng Việt, vui vẻ",
+            "fluency": "nhận xét về độ trôi chảy",
+            "suggestion": "mẹo nhỏ để đọc tốt hơn",
+            "isCorrect": true/false (true nếu accuracy >= 80)
+          }`,
         },
       ],
     },
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
+      responseMimeType: "application/json",
     },
   });
 
-  return response.text;
+  try {
+    return JSON.parse(response.text);
+  } catch (e) {
+    // Fallback if AI doesn't return valid JSON
+    return {
+      accuracy: 70,
+      feedback: response.text,
+      fluency: "Khá tốt",
+      suggestion: "Cố gắng lên con nhé!",
+      isCorrect: response.text.toLowerCase().includes('tuyệt vời') || response.text.toLowerCase().includes('chính xác')
+    };
+  }
 }

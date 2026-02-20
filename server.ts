@@ -86,6 +86,20 @@ async function startServer() {
     res.json(words);
   });
 
+  app.get("/api/words/topic/:topic", (req, res) => {
+    const { topic } = req.params;
+    // Try to match theme or topic name
+    const words = db.prepare("SELECT * FROM learned_words WHERE theme LIKE ? OR ? LIKE '%' || theme || '%' LIMIT 10").all(`%${topic}%`, topic);
+    
+    // If no words found for specific topic, get some general ones
+    if (words.length === 0) {
+      const generalWords = db.prepare("SELECT * FROM learned_words ORDER BY RANDOM() LIMIT 10").all();
+      return res.json(generalWords);
+    }
+    
+    res.json(words);
+  });
+
   app.post("/api/words", (req, res) => {
     const { word, meaning, pronunciation, example } = req.body;
     try {

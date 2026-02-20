@@ -11,6 +11,7 @@ import {
 import Markdown from 'react-markdown';
 import confetti from 'canvas-confetti';
 import { ROADMAP, Topic } from './constants';
+import { GRAMMAR_LEVELS, GrammarLevel, GrammarStructure } from './grammarData';
 import { chatWithTutor, generateLesson, textToSpeech, evaluatePronunciation } from './services/gemini';
 import { pcmToWav } from './services/audioUtils';
 import { clsx, type ClassValue } from 'clsx';
@@ -27,7 +28,7 @@ const iconMap: Record<string, any> = {
 };
 
 export default function App() {
-  const [view, setView] = useState<'dashboard' | 'roadmap' | 'lesson' | 'chat' | 'games'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'roadmap' | 'lesson' | 'chat' | 'games' | 'grammar'>('dashboard');
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string, audio?: string }[]>([]);
   const [lessonData, setLessonData] = useState<any>(null);
@@ -90,7 +91,12 @@ export default function App() {
     setLessonData(null);
     setLessonStep(0);
     try {
-      const data = await generateLesson(topic.name, topic.grade);
+      // Step 1: Fetch words from local DB (Optimizing tokens)
+      const wordsRes = await fetch(`/api/words/topic/${encodeURIComponent(topic.name)}`);
+      const localWords = await wordsRes.json();
+      
+      // Step 2: Use AI only for creative generation based on local words
+      const data = await generateLesson(topic.name, topic.grade, localWords);
       setLessonData(data);
     } catch (err) {
       alert("Ôi, có lỗi khi tải bài học. Con thử lại nhé!");
@@ -503,16 +509,17 @@ export default function App() {
           const base64Audio = (reader.result as string).split(',')[1];
           setIsLoading(true);
           try {
-            const feedback = await evaluatePronunciation(base64Audio, text, mimeType);
-            const isCorrect = feedback.toLowerCase().includes('tuyệt vời') || 
-                              feedback.toLowerCase().includes('chính xác') || 
-                              feedback.toLowerCase().includes('giỏi');
+            const result = await evaluatePronunciation(base64Audio, text, mimeType);
+            const { accuracy, feedback, fluency, suggestion, isCorrect } = result;
             
             playFeedbackSound(isCorrect);
             
             setMessages(prev => [...prev, 
               { role: 'user', text: `[Âm thanh luyện đọc ${isSentence ? 'câu' : 'từ'}: ${text}]` },
-              { role: 'model', text: feedback }
+              { 
+                role: 'model', 
+                text: `**Điểm: ${accuracy}%**\n\n${feedback}\n\n* **Trôi chảy:** ${fluency}\n* **Gợi ý:** ${suggestion}` 
+              }
             ]);
             
             if (isCorrect) {
@@ -582,6 +589,22 @@ export default function App() {
 
         <motion.div 
           whileHover={{ y: -4 }}
+          className="bg-indigo-600 p-8 rounded-3xl text-white shadow-xl shadow-indigo-200 cursor-pointer relative overflow-hidden group"
+          onClick={() => setView('grammar')}
+        >
+          <div className="relative z-10">
+            <BookOpen className="w-12 h-12 mb-4 opacity-80" />
+            <h2 className="text-2xl font-bold mb-2">Cấu trúc câu</h2>
+            <p className="opacity-80">Học các mẫu câu từ cơ bản đến nâng cao theo từng lớp.</p>
+            <div className="mt-6 flex items-center gap-2 font-bold">
+              Khám phá <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </div>
+          <div className="absolute -right-8 -bottom-8 w-48 h-48 bg-white/10 rounded-full blur-3xl group-hover:scale-110 transition-transform" />
+        </motion.div>
+
+        <motion.div 
+          whileHover={{ y: -4 }}
           className="bg-emerald-500 p-8 rounded-3xl text-white shadow-xl shadow-emerald-200 cursor-pointer relative overflow-hidden group"
           onClick={() => setView('chat')}
         >
@@ -644,6 +667,72 @@ export default function App() {
           })}
         </div>
       </section>
+    </div>
+  );
+
+  const renderGrammar = () => (
+    <div className="space-y-8">
+      <button 
+        onClick={() => setView('dashboard')}
+        className="flex items-center gap-2 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
+      >
+        <ArrowLeft className="w-5 h-5" /> Quay lại
+      </button>
+      
+      <div className="text-center max-w-2xl mx-auto">
+        <h1 className="text-4xl font-bold text-slate-900 mb-4">Cấu trúc tiếng Anh cho trẻ em</h1>
+        <p className="text-slate-500">Học các mẫu câu quan trọng nhất chia theo từng cấp độ lớp học.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-8">
+        {GRAMMAR_LEVELS.map((level, idx) => (
+          <motion.div 
+            key={idx}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.1 }}
+            className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden"
+          >
+            <div className={cn("p-6 text-white flex justify-between items-center", level.color)}>
+              <div>
+                <span className="text-xs font-black uppercase tracking-widest opacity-80">{level.level}</span>
+                <h3 className="text-2xl font-bold">{level.grade}</h3>
+              </div>
+              <BookOpen className="w-8 h-8 opacity-50" />
+            </div>
+            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+              {level.sections.map((section, sIdx) => (
+                <div key={sIdx} className="space-y-4">
+                  <h4 className="text-lg font-bold text-slate-900 border-l-4 border-indigo-500 pl-3">
+                    {sIdx + 1}. {section.title}
+                  </h4>
+                  <div className="space-y-3">
+                    {section.examples.map((ex, eIdx) => (
+                      <div key={eIdx} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center group hover:bg-indigo-50 transition-colors">
+                        <span className="font-medium text-slate-700">{ex}</span>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => handleTTS(ex)}
+                            className="p-2 bg-white rounded-lg shadow-sm text-indigo-600 hover:text-indigo-700"
+                          >
+                            <Volume2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => startRecording(ex, true)}
+                            className="p-2 bg-white rounded-lg shadow-sm text-emerald-600 hover:text-emerald-700"
+                          >
+                            <Mic className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 
@@ -1040,6 +1129,7 @@ export default function App() {
           <div className="hidden md:flex items-center gap-8">
             <button onClick={() => setView('dashboard')} className={cn("text-sm font-bold transition-colors", view === 'dashboard' ? "text-indigo-600" : "text-slate-400 hover:text-slate-600")}>Trang chủ</button>
             <button onClick={() => setView('roadmap')} className={cn("text-sm font-bold transition-colors", view === 'roadmap' ? "text-indigo-600" : "text-slate-400 hover:text-slate-600")}>Lộ trình</button>
+            <button onClick={() => setView('grammar')} className={cn("text-sm font-bold transition-colors", view === 'grammar' ? "text-indigo-600" : "text-slate-400 hover:text-slate-600")}>Cấu trúc câu</button>
             <button onClick={() => setView('games')} className={cn("text-sm font-bold transition-colors", view === 'games' ? "text-indigo-600" : "text-slate-400 hover:text-slate-600")}>Trò chơi</button>
             <button onClick={() => setView('chat')} className={cn("text-sm font-bold transition-colors", view === 'chat' ? "text-indigo-600" : "text-slate-400 hover:text-slate-600")}>Học tập</button>
           </div>
@@ -1067,6 +1157,7 @@ export default function App() {
           >
             {view === 'dashboard' && renderDashboard()}
             {view === 'roadmap' && renderRoadmap()}
+            {view === 'grammar' && renderGrammar()}
             {view === 'games' && renderGames()}
             {view === 'lesson' && renderLesson()}
             {view === 'chat' && renderChat()}
