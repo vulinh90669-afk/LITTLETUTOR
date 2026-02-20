@@ -7,23 +7,36 @@ const db = new Database("tutor.db");
 
 // Initialize database
 db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    grade TEXT,
+    avatar TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS progress (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
     topic TEXT,
     words_learned INTEGER DEFAULT 0,
     last_session TEXT,
-    completed BOOLEAN DEFAULT 0
+    completed BOOLEAN DEFAULT 0,
+    FOREIGN KEY(user_id) REFERENCES users(id)
   );
   
   CREATE TABLE IF NOT EXISTS learned_words (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    word TEXT UNIQUE,
+    user_id INTEGER,
+    word TEXT,
     meaning TEXT,
     pronunciation TEXT,
     example TEXT,
     theme TEXT,
     mastery_level INTEGER DEFAULT 0,
-    last_reviewed TEXT
+    last_reviewed TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    UNIQUE(user_id, word)
   );
 `);
 
@@ -62,27 +75,47 @@ async function startServer() {
   await seedDatabase();
 
   // API Routes
-  app.get("/api/progress", (req, res) => {
-    const progress = db.prepare("SELECT * FROM progress").all();
+  app.get("/api/users", (req, res) => {
+    const users = db.prepare("SELECT * FROM users").all();
+    res.json(users);
+  });
+
+  app.post("/api/users", (req, res) => {
+    const { name, grade, avatar } = req.body;
+    try {
+      const result = db.prepare("INSERT INTO users (name, grade, avatar) VALUES (?, ?, ?)")
+        .run(name, grade, avatar || "😊");
+      res.json({ id: result.lastInsertRowid, name, grade, avatar });
+    } catch (err) {
+      const existing = db.prepare("SELECT * FROM users WHERE name = ?").get(name);
+      if (existing) return res.json(existing);
+      res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  app.get("/api/progress/:userId", (req, res) => {
+    const { userId } = req.params;
+    const progress = db.prepare("SELECT * FROM progress WHERE user_id = ?").all(userId);
     res.json(progress);
   });
 
   app.post("/api/progress", (req, res) => {
-    const { topic, words_learned } = req.body;
-    const existing = db.prepare("SELECT id FROM progress WHERE topic = ?").get(topic) as { id: number } | undefined;
+    const { userId, topic, words_learned } = req.body;
+    const existing = db.prepare("SELECT id FROM progress WHERE user_id = ? AND topic = ?").get(userId, topic) as { id: number } | undefined;
     
     if (existing) {
       db.prepare("UPDATE progress SET words_learned = words_learned + ?, last_session = CURRENT_TIMESTAMP WHERE id = ?")
         .run(words_learned, existing.id);
     } else {
-      db.prepare("INSERT INTO progress (topic, words_learned, last_session) VALUES (?, ?, CURRENT_TIMESTAMP)")
-        .run(topic, words_learned);
+      db.prepare("INSERT INTO progress (user_id, topic, words_learned, last_session) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
+        .run(userId, topic, words_learned);
     }
     res.json({ success: true });
   });
 
-  app.get("/api/words", (req, res) => {
-    const words = db.prepare("SELECT * FROM learned_words ORDER BY last_reviewed DESC").all();
+  app.get("/api/words/:userId", (req, res) => {
+    const { userId } = req.params;
+    const words = db.prepare("SELECT * FROM learned_words WHERE user_id = ? ORDER BY last_reviewed DESC").all(userId);
     res.json(words);
   });
 

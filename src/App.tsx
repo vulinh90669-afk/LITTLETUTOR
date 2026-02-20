@@ -27,7 +27,85 @@ const iconMap: Record<string, any> = {
   Car, Briefcase, CloudSun, Clock, Star
 };
 
+function LoginView({ users, onSelectUser, onCreateUser }: { users: any[], onSelectUser: (u: any) => void, onCreateUser: (name: string, grade: string) => void }) {
+  const [name, setName] = useState('');
+  const [grade, setGrade] = useState('Lớp 2');
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 gap-12 items-center"
+      >
+        <div className="space-y-8">
+          <div className="inline-block p-4 bg-indigo-600 rounded-3xl shadow-xl shadow-indigo-200">
+            <Sparkles className="w-12 h-12 text-white" />
+          </div>
+          <h1 className="text-5xl font-black text-slate-900 leading-tight">Chào mừng con đến với Teacher Joy!</h1>
+          <p className="text-xl text-slate-500">Hãy chọn bạn nhỏ hoặc tạo hồ sơ mới để bắt đầu học nhé.</p>
+          
+          <div className="grid grid-cols-2 gap-4">
+            {users.map((u) => (
+              <button 
+                key={u.id}
+                onClick={() => onSelectUser(u)}
+                className="p-6 bg-white rounded-3xl shadow-sm border border-slate-100 hover:border-indigo-500 hover:shadow-md transition-all text-left group"
+              >
+                <div className="text-4xl mb-3 group-hover:scale-110 transition-transform">{u.avatar}</div>
+                <div className="font-bold text-slate-900">{u.name}</div>
+                <div className="text-sm text-slate-400">{u.grade}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white p-10 rounded-[40px] shadow-2xl shadow-indigo-100 border border-slate-50 space-y-8">
+          <h2 className="text-2xl font-bold text-slate-900">Tạo hồ sơ mới</h2>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-widest">Tên của con</label>
+              <input 
+                type="text" 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ví dụ: Bảo Nam"
+                className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-widest">Trình độ</label>
+              <div className="grid grid-cols-2 gap-3">
+                {['Lớp 2', 'Lớp 3', 'Lớp 4', 'Lớp 5'].map((g) => (
+                  <button 
+                    key={g}
+                    onClick={() => setGrade(g)}
+                    className={cn(
+                      "p-4 rounded-2xl font-bold transition-all",
+                      grade === g ? "bg-indigo-600 text-white shadow-lg" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                    )}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button 
+              onClick={() => name && onCreateUser(name, grade)}
+              className="w-full py-5 bg-emerald-500 text-white rounded-2xl font-bold text-lg hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-100"
+            >
+              Bắt đầu học ngay!
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<{ id: number, name: string, grade: string, avatar: string } | null>(null);
+  const [users, setUsers] = useState<any[]>([]);
   const [view, setView] = useState<'dashboard' | 'roadmap' | 'lesson' | 'chat' | 'games' | 'grammar'>('dashboard');
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string, audio?: string }[]>([]);
@@ -48,21 +126,45 @@ export default function App() {
   const lessonRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchProgress();
-    fetchWords();
+    fetchUsers();
   }, []);
 
   useEffect(() => {
-    const handleFullScreenChange = () => {
-      setIsFullScreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFullScreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullScreenChange);
-  }, []);
+    if (currentUser) {
+      fetchProgress();
+      fetchWords();
+    }
+  }, [currentUser]);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch('/api/users');
+      const data = await res.json();
+      setUsers(data);
+    } catch (err) {
+      console.error("Fetch Users Error:", err);
+    }
+  };
+
+  const handleCreateUser = async (name: string, grade: string) => {
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, grade, avatar: ['😊', '🐶', '🐱', '🦁', '🐼', '🦄'][Math.floor(Math.random() * 6)] })
+      });
+      const user = await res.json();
+      setCurrentUser(user);
+      fetchUsers();
+    } catch (err) {
+      console.error("Create User Error:", err);
+    }
+  };
 
   const fetchWords = async () => {
+    if (!currentUser) return;
     try {
-      const res = await fetch('/api/words');
+      const res = await fetch(`/api/words/${currentUser.id}`);
       const data = await res.json();
       setLearnedWords(data);
     } catch (err) {
@@ -75,8 +177,9 @@ export default function App() {
   }, [messages]);
 
   const fetchProgress = async () => {
+    if (!currentUser) return;
     try {
-      const res = await fetch('/api/progress');
+      const res = await fetch(`/api/progress/${currentUser.id}`);
       const data = await res.json();
       setProgress(data);
     } catch (err) {
@@ -85,6 +188,7 @@ export default function App() {
   };
 
   const startLesson = async (topic: Topic) => {
+    if (!currentUser) return;
     setSelectedTopic(topic);
     setView('lesson');
     setIsLoading(true);
@@ -96,7 +200,8 @@ export default function App() {
       const localWords = await wordsRes.json();
       
       // Step 2: Use AI only for creative generation based on local words
-      const data = await generateLesson(topic.name, topic.grade, localWords);
+      // Use user's grade to influence lesson difficulty
+      const data = await generateLesson(topic.name, currentUser.grade, localWords);
       setLessonData(data);
     } catch (err) {
       alert("Ôi, có lỗi khi tải bài học. Con thử lại nhé!");
@@ -141,10 +246,11 @@ export default function App() {
     };
 
     const saveProgress = async (topic: string, wordsCount: number) => {
+      if (!currentUser) return;
       await fetch('/api/progress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, words_learned: wordsCount })
+        body: JSON.stringify({ userId: currentUser.id, topic, words_learned: wordsCount })
       });
       fetchProgress();
     };
@@ -556,8 +662,8 @@ export default function App() {
     <div className="space-y-8">
       <header className="flex justify-between items-center">
         <div>
-          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Chào con yêu! 👋</h1>
-          <p className="text-slate-500 mt-2 font-medium">Hôm nay con muốn học gì nào?</p>
+          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Chào {currentUser?.name} yêu! 👋</h1>
+          <p className="text-slate-500 mt-2 font-medium">Hôm nay con muốn học gì ở trình độ {currentUser?.grade} nào?</p>
         </div>
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
           <div className="bg-emerald-100 p-3 rounded-xl">
@@ -670,71 +776,80 @@ export default function App() {
     </div>
   );
 
-  const renderGrammar = () => (
-    <div className="space-y-8">
-      <button 
-        onClick={() => setView('dashboard')}
-        className="flex items-center gap-2 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
-      >
-        <ArrowLeft className="w-5 h-5" /> Quay lại
-      </button>
-      
-      <div className="text-center max-w-2xl mx-auto">
-        <h1 className="text-4xl font-bold text-slate-900 mb-4">Cấu trúc tiếng Anh cho trẻ em</h1>
-        <p className="text-slate-500">Học các mẫu câu quan trọng nhất chia theo từng cấp độ lớp học.</p>
-      </div>
+  const renderGrammar = () => {
+    // Filter grammar levels based on user's grade
+    const filteredLevels = currentUser ? GRAMMAR_LEVELS.filter(l => {
+      const gradeNum = parseInt(currentUser.grade.replace(/\D/g, ''));
+      const levelNum = parseInt(l.level.replace(/\D/g, ''));
+      return levelNum <= gradeNum; // Show current and previous levels
+    }) : GRAMMAR_LEVELS;
 
-      <div className="grid grid-cols-1 gap-8">
-        {GRAMMAR_LEVELS.map((level, idx) => (
-          <motion.div 
-            key={idx}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden"
-          >
-            <div className={cn("p-6 text-white flex justify-between items-center", level.color)}>
-              <div>
-                <span className="text-xs font-black uppercase tracking-widest opacity-80">{level.level}</span>
-                <h3 className="text-2xl font-bold">{level.grade}</h3>
-              </div>
-              <BookOpen className="w-8 h-8 opacity-50" />
-            </div>
-            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-              {level.sections.map((section, sIdx) => (
-                <div key={sIdx} className="space-y-4">
-                  <h4 className="text-lg font-bold text-slate-900 border-l-4 border-indigo-500 pl-3">
-                    {sIdx + 1}. {section.title}
-                  </h4>
-                  <div className="space-y-3">
-                    {section.examples.map((ex, eIdx) => (
-                      <div key={eIdx} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center group hover:bg-indigo-50 transition-colors">
-                        <span className="font-medium text-slate-700">{ex}</span>
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={() => handleTTS(ex)}
-                            className="p-2 bg-white rounded-lg shadow-sm text-indigo-600 hover:text-indigo-700"
-                          >
-                            <Volume2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => startRecording(ex, true)}
-                            className="p-2 bg-white rounded-lg shadow-sm text-emerald-600 hover:text-emerald-700"
-                          >
-                            <Mic className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+    return (
+      <div className="space-y-8">
+        <button 
+          onClick={() => setView('dashboard')}
+          className="flex items-center gap-2 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5" /> Quay lại
+        </button>
+        
+        <div className="text-center max-w-2xl mx-auto">
+          <h1 className="text-4xl font-bold text-slate-900 mb-4">Cấu trúc tiếng Anh cho trẻ em</h1>
+          <p className="text-slate-500">Học các mẫu câu quan trọng nhất chia theo từng cấp độ lớp học.</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-8">
+          {filteredLevels.map((level, idx) => (
+            <motion.div 
+              key={idx}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.1 }}
+              className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden"
+            >
+              <div className={cn("p-6 text-white flex justify-between items-center", level.color)}>
+                <div>
+                  <span className="text-xs font-black uppercase tracking-widest opacity-80">{level.level}</span>
+                  <h3 className="text-2xl font-bold">{level.grade}</h3>
                 </div>
-              ))}
-            </div>
-          </motion.div>
-        ))}
+                <BookOpen className="w-8 h-8 opacity-50" />
+              </div>
+              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                {level.sections.map((section, sIdx) => (
+                  <div key={sIdx} className="space-y-4">
+                    <h4 className="text-lg font-bold text-slate-900 border-l-4 border-indigo-500 pl-3">
+                      {sIdx + 1}. {section.title}
+                    </h4>
+                    <div className="space-y-3">
+                      {section.examples.map((ex, eIdx) => (
+                        <div key={eIdx} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center group hover:bg-indigo-50 transition-colors">
+                          <span className="font-medium text-slate-700">{ex}</span>
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => handleTTS(ex)}
+                              className="p-2 bg-white rounded-lg shadow-sm text-indigo-600 hover:text-indigo-700"
+                            >
+                              <Volume2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => startRecording(ex, true)}
+                              className="p-2 bg-white rounded-lg shadow-sm text-emerald-600 hover:text-emerald-700"
+                            >
+                              <Mic className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderRoadmap = () => (
     <div className="space-y-8">
@@ -1115,6 +1230,16 @@ export default function App() {
     </div>
   );
 
+  if (!currentUser) {
+    return (
+      <LoginView 
+        users={users} 
+        onSelectUser={setCurrentUser} 
+        onCreateUser={handleCreateUser} 
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900">
       <nav className="bg-white border-b border-slate-100 sticky top-0 z-50">
@@ -1135,13 +1260,16 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
-              <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-              <span className="text-xs font-bold text-amber-700">Level 1</span>
+            <div className="text-right hidden sm:block">
+              <div className="text-sm font-bold text-slate-900">{currentUser.name}</div>
+              <div className="text-xs text-slate-400 font-bold">{currentUser.grade}</div>
             </div>
-            <div className="w-10 h-10 bg-slate-100 rounded-full border-2 border-white shadow-sm overflow-hidden">
-              <img src="https://picsum.photos/seed/kid/100/100" alt="Avatar" referrerPolicy="no-referrer" />
-            </div>
+            <button 
+              onClick={() => setCurrentUser(null)}
+              className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+            >
+              {currentUser.avatar}
+            </button>
           </div>
         </div>
       </nav>
