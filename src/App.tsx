@@ -12,7 +12,7 @@ import Markdown from 'react-markdown';
 import confetti from 'canvas-confetti';
 import { ROADMAP, Topic } from './constants';
 import { GRAMMAR_LEVELS, GrammarLevel, GrammarStructure } from './grammarData';
-import { chatWithTutor, generateLesson, textToSpeech, evaluatePronunciation } from './services/gemini';
+import { chatWithTutor, generateLesson, textToSpeech, evaluatePronunciation, generatePersonalizedGrammar } from './services/gemini';
 import { pcmToWav } from './services/audioUtils';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -139,6 +139,7 @@ export default function App() {
   const fetchUsers = async () => {
     try {
       const res = await fetch('/api/users');
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
       setUsers(data);
     } catch (err) {
@@ -153,6 +154,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, grade, avatar: ['😊', '🐶', '🐱', '🦁', '🐼', '🦄'][Math.floor(Math.random() * 6)] })
       });
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const user = await res.json();
       setCurrentUser(user);
       fetchUsers();
@@ -165,10 +167,11 @@ export default function App() {
     if (!currentUser) return;
     try {
       const res = await fetch(`/api/words/${currentUser.id}`);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
       setLearnedWords(data);
     } catch (err) {
-      console.error(err);
+      console.error("Fetch Words Error:", err);
     }
   };
 
@@ -180,10 +183,11 @@ export default function App() {
     if (!currentUser) return;
     try {
       const res = await fetch(`/api/progress/${currentUser.id}`);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
       setProgress(data);
     } catch (err) {
-      console.error(err);
+      console.error("Fetch Progress Error:", err);
     }
   };
 
@@ -197,6 +201,7 @@ export default function App() {
     try {
       // Step 1: Fetch words from local DB (Optimizing tokens)
       const wordsRes = await fetch(`/api/words/topic/${encodeURIComponent(topic.name)}`);
+      if (!wordsRes.ok) throw new Error(`HTTP error! status: ${wordsRes.status}`);
       const localWords = await wordsRes.json();
       
       // Step 2: Use AI only for creative generation based on local words
@@ -777,76 +782,138 @@ export default function App() {
   );
 
   const renderGrammar = () => {
-    // Filter grammar levels based on user's grade
-    const filteredLevels = currentUser ? GRAMMAR_LEVELS.filter(l => {
+    const [activeLevel, setActiveLevel] = useState<number>(() => {
+      if (!currentUser) return 0;
       const gradeNum = parseInt(currentUser.grade.replace(/\D/g, ''));
-      const levelNum = parseInt(l.level.replace(/\D/g, ''));
-      return levelNum <= gradeNum; // Show current and previous levels
-    }) : GRAMMAR_LEVELS;
+      return Math.min(gradeNum - 2, GRAMMAR_LEVELS.length - 1);
+    });
+    const [personalizedExamples, setPersonalizedExamples] = useState<Record<string, any[]>>({});
+    const [isGenerating, setIsGenerating] = useState<string | null>(null);
+
+    const handleGeneratePersonalized = async (grade: string, structure: string, sectionId: string) => {
+      setIsGenerating(sectionId);
+      try {
+        const result = await generatePersonalizedGrammar(grade, structure, learnedWords);
+        setPersonalizedExamples(prev => ({ ...prev, [sectionId]: result.examples }));
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsGenerating(null);
+      }
+    };
+
+    const currentLevel = GRAMMAR_LEVELS[activeLevel];
 
     return (
       <div className="space-y-8">
-        <button 
-          onClick={() => setView('dashboard')}
-          className="flex items-center gap-2 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" /> Quay lại
-        </button>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <button 
+            onClick={() => setView('dashboard')}
+            className="flex items-center gap-2 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" /> Quay lại
+          </button>
+
+          <div className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto max-w-full">
+            {GRAMMAR_LEVELS.map((level, idx) => {
+              const gradeNum = parseInt(currentUser?.grade.replace(/\D/g, '') || '0');
+              const levelNum = parseInt(level.level.replace(/\D/g, ''));
+              const isLocked = levelNum > gradeNum;
+
+              return (
+                <button
+                  key={idx}
+                  disabled={isLocked}
+                  onClick={() => setActiveLevel(idx)}
+                  className={cn(
+                    "px-6 py-3 rounded-xl font-bold text-sm whitespace-nowrap transition-all flex items-center gap-2",
+                    activeLevel === idx 
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-100" 
+                      : isLocked 
+                        ? "text-slate-300 cursor-not-allowed" 
+                        : "text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  {level.level} {isLocked && "🔒"}
+                  {levelNum === gradeNum && <span className="text-[10px] bg-emerald-400 text-white px-1.5 py-0.5 rounded-full ml-1">Đề xuất</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         
         <div className="text-center max-w-2xl mx-auto">
           <h1 className="text-4xl font-bold text-slate-900 mb-4">Cấu trúc tiếng Anh cho trẻ em</h1>
           <p className="text-slate-500">Học các mẫu câu quan trọng nhất chia theo từng cấp độ lớp học.</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-8">
-          {filteredLevels.map((level, idx) => (
-            <motion.div 
-              key={idx}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.1 }}
-              className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden"
-            >
-              <div className={cn("p-6 text-white flex justify-between items-center", level.color)}>
-                <div>
-                  <span className="text-xs font-black uppercase tracking-widest opacity-80">{level.level}</span>
-                  <h3 className="text-2xl font-bold">{level.grade}</h3>
-                </div>
-                <BookOpen className="w-8 h-8 opacity-50" />
-              </div>
-              <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                {level.sections.map((section, sIdx) => (
-                  <div key={sIdx} className="space-y-4">
-                    <h4 className="text-lg font-bold text-slate-900 border-l-4 border-indigo-500 pl-3">
-                      {sIdx + 1}. {section.title}
+        <motion.div 
+          key={activeLevel}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden"
+        >
+          <div className={cn("p-8 text-white flex justify-between items-center", currentLevel.color)}>
+            <div>
+              <span className="text-xs font-black uppercase tracking-widest opacity-80">{currentLevel.level}</span>
+              <h3 className="text-3xl font-bold">{currentLevel.grade}</h3>
+            </div>
+            <BookOpen className="w-12 h-12 opacity-50" />
+          </div>
+          
+          <div className="p-10 grid grid-cols-1 md:grid-cols-2 gap-12">
+            {currentLevel.sections.map((section, sIdx) => {
+              const sectionId = `${activeLevel}-${sIdx}`;
+              const examples = personalizedExamples[sectionId] || section.examples.map(ex => ({ en: ex, vi: '' }));
+
+              return (
+                <div key={sIdx} className="space-y-6">
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-4">
+                    <h4 className="text-xl font-bold text-slate-900 flex items-center gap-3">
+                      <span className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center text-sm">{sIdx + 1}</span>
+                      {section.title}
                     </h4>
-                    <div className="space-y-3">
-                      {section.examples.map((ex, eIdx) => (
-                        <div key={eIdx} className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center group hover:bg-indigo-50 transition-colors">
-                          <span className="font-medium text-slate-700">{ex}</span>
+                    <button 
+                      onClick={() => handleGeneratePersonalized(currentLevel.grade, section.title, sectionId)}
+                      disabled={isGenerating === sectionId}
+                      className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 bg-indigo-50 px-3 py-1.5 rounded-full transition-colors disabled:opacity-50"
+                    >
+                      {isGenerating === sectionId ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      Dùng từ đã học
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {examples.map((ex, eIdx) => (
+                      <div key={eIdx} className="bg-slate-50 p-5 rounded-3xl group hover:bg-indigo-50 transition-all border border-transparent hover:border-indigo-100">
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="space-y-1">
+                            <p className="font-bold text-lg text-slate-800">{ex.en}</p>
+                            {ex.vi && <p className="text-sm text-slate-500 italic">{ex.vi}</p>}
+                          </div>
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
-                              onClick={() => handleTTS(ex)}
-                              className="p-2 bg-white rounded-lg shadow-sm text-indigo-600 hover:text-indigo-700"
+                              onClick={() => handleTTS(ex.en)}
+                              className="p-2.5 bg-white rounded-xl shadow-sm text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all"
                             >
                               <Volume2 className="w-4 h-4" />
                             </button>
                             <button 
-                              onClick={() => startRecording(ex, true)}
-                              className="p-2 bg-white rounded-lg shadow-sm text-emerald-600 hover:text-emerald-700"
+                              onClick={() => startRecording(ex.en, true)}
+                              className="p-2.5 bg-white rounded-xl shadow-sm text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"
                             >
                               <Mic className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </motion.div>
-          ))}
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
       </div>
     );
   };

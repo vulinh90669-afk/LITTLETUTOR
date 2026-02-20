@@ -81,6 +81,31 @@ export async function generateLesson(topic: string, grade: string, wordsList: an
   return JSON.parse(response.text);
 }
 
+export async function generatePersonalizedGrammar(grade: string, structure: string, words: any[]) {
+  const wordsContext = words.map(w => w.word).join(', ');
+  const prompt = `Bạn là Teacher Joy. Hãy tạo 3 ví dụ câu tiếng Anh cho cấu trúc ngữ pháp: "${structure}" dành cho học sinh ${grade}.
+  Yêu cầu:
+  1. Sử dụng các từ vựng mà học sinh đã học: [${wordsContext}]. Nếu không đủ từ phù hợp, hãy dùng từ vựng cơ bản lớp ${grade}.
+  2. Mỗi ví dụ đi kèm nghĩa tiếng Việt.
+  3. Trả về kết quả dưới dạng JSON:
+  {
+    "examples": [
+      {"en": "Câu tiếng Anh", "vi": "Nghĩa tiếng Việt"}
+    ]
+  }`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: prompt,
+    config: {
+      systemInstruction: SYSTEM_INSTRUCTION,
+      responseMimeType: "application/json",
+    },
+  });
+
+  return JSON.parse(response.text);
+}
+
 export async function chatWithTutor(message: string, history: any[], context?: { progress: any[], roadmap: any[] }) {
   let systemInstruction = SYSTEM_INSTRUCTION;
   if (context) {

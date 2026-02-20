@@ -76,8 +76,12 @@ async function startServer() {
 
   // API Routes
   app.get("/api/users", (req, res) => {
-    const users = db.prepare("SELECT * FROM users").all();
-    res.json(users);
+    try {
+      const users = db.prepare("SELECT * FROM users").all();
+      res.json(users);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
   });
 
   app.post("/api/users", (req, res) => {
@@ -95,53 +99,74 @@ async function startServer() {
 
   app.get("/api/progress/:userId", (req, res) => {
     const { userId } = req.params;
-    const progress = db.prepare("SELECT * FROM progress WHERE user_id = ?").all(userId);
-    res.json(progress);
+    try {
+      const progress = db.prepare("SELECT * FROM progress WHERE user_id = ?").all(userId);
+      res.json(progress);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch progress" });
+    }
   });
 
   app.post("/api/progress", (req, res) => {
     const { userId, topic, words_learned } = req.body;
-    const existing = db.prepare("SELECT id FROM progress WHERE user_id = ? AND topic = ?").get(userId, topic) as { id: number } | undefined;
-    
-    if (existing) {
-      db.prepare("UPDATE progress SET words_learned = words_learned + ?, last_session = CURRENT_TIMESTAMP WHERE id = ?")
-        .run(words_learned, existing.id);
-    } else {
-      db.prepare("INSERT INTO progress (user_id, topic, words_learned, last_session) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
-        .run(userId, topic, words_learned);
+    try {
+      const existing = db.prepare("SELECT id FROM progress WHERE user_id = ? AND topic = ?").get(userId, topic) as { id: number } | undefined;
+      
+      if (existing) {
+        db.prepare("UPDATE progress SET words_learned = words_learned + ?, last_session = CURRENT_TIMESTAMP WHERE id = ?")
+          .run(words_learned, existing.id);
+      } else {
+        db.prepare("INSERT INTO progress (user_id, topic, words_learned, last_session) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
+          .run(userId, topic, words_learned);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to save progress" });
     }
-    res.json({ success: true });
   });
 
   app.get("/api/words/:userId", (req, res) => {
     const { userId } = req.params;
-    const words = db.prepare("SELECT * FROM learned_words WHERE user_id = ? ORDER BY last_reviewed DESC").all(userId);
-    res.json(words);
+    try {
+      const words = db.prepare("SELECT * FROM learned_words WHERE user_id = ? ORDER BY last_reviewed DESC").all(userId);
+      res.json(words);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch words" });
+    }
   });
 
   app.get("/api/words/topic/:topic", (req, res) => {
     const { topic } = req.params;
-    // Try to match theme or topic name
-    const words = db.prepare("SELECT * FROM learned_words WHERE theme LIKE ? OR ? LIKE '%' || theme || '%' LIMIT 10").all(`%${topic}%`, topic);
-    
-    // If no words found for specific topic, get some general ones
-    if (words.length === 0) {
-      const generalWords = db.prepare("SELECT * FROM learned_words ORDER BY RANDOM() LIMIT 10").all();
-      return res.json(generalWords);
+    try {
+      // Try to match theme or topic name
+      const words = db.prepare("SELECT * FROM learned_words WHERE theme LIKE ? OR ? LIKE '%' || theme || '%' LIMIT 10").all(`%${topic}%`, topic);
+      
+      // If no words found for specific topic, get some general ones
+      if (words.length === 0) {
+        const generalWords = db.prepare("SELECT * FROM learned_words ORDER BY RANDOM() LIMIT 10").all();
+        return res.json(generalWords);
+      }
+      
+      res.json(words);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch topic words" });
     }
-    
-    res.json(words);
   });
 
   app.post("/api/words", (req, res) => {
-    const { word, meaning, pronunciation, example } = req.body;
+    const { userId, word, meaning, pronunciation, example } = req.body;
     try {
-      db.prepare("INSERT OR REPLACE INTO learned_words (word, meaning, pronunciation, example, last_reviewed) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)")
-        .run(word, meaning, pronunciation, example);
+      db.prepare("INSERT OR REPLACE INTO learned_words (user_id, word, meaning, pronunciation, example, last_reviewed) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)")
+        .run(userId, word, meaning, pronunciation, example);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to save word" });
     }
+  });
+
+  // Catch-all for undefined API routes to prevent HTML fallback
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
   });
 
   // Vite middleware for development
